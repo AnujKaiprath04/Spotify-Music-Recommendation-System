@@ -1,0 +1,84 @@
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+songs = pd.DataFrame({
+    "song_id": [1,2,3,4,5,6,7,8,9],
+    "title": [
+        "Tum Hi Ho",
+        "Kesariya",
+        "Apna Bana Le",
+        "Chaiyya Chaiyya",
+        "Kal Ho Naa Ho",
+        "Ghungroo",
+        "Raataan Lambiyan",
+        "Malang Title Track",
+        "Brown Rang"
+    ],
+    "features": [
+        "romantic sad melodic",
+        "romantic soulful soft",
+        "romantic calm acoustic",
+        "dance upbeat energetic",
+        "emotional soft classic",
+        "dance party energetic",
+        "romantic lo-fi soft",
+        "party energetic electronic",
+        "hiphop rap upbeat"
+    ]
+})
+
+listening = pd.DataFrame({
+    "user_id":  [1,1,1,2,2,3,3,4,4,5],
+    "song_id":  [1,2,4,2,6,3,7,4,9,8],
+    "rating":   [5,4,5,4,5,5,4,4,5,5]
+})
+
+matrix = listening.pivot_table(
+    index="user_id",
+    columns="song_id",
+    values="rating"
+).fillna(0)
+
+user_similarity = pd.DataFrame(
+    cosine_similarity(matrix),
+    index=matrix.index,
+    columns=matrix.index
+)
+
+def recommend_cf(user_id, n=3):
+    listened = listening[listening.user_id == user_id].song_id.tolist()
+    similar_users = user_similarity[user_id].sort_values(ascending=False)[1:]
+    scores = {}
+    for u, sim in similar_users.items():
+        data = listening[listening.user_id == u]
+        for _, row in data.iterrows():
+            if row.song_id not in listened:
+                scores[row.song_id] = scores.get(row.song_id, 0) + sim * row.rating
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:n]
+    return songs[songs.song_id.isin([i[0] for i in ranked])]["title"]
+
+tfidf = TfidfVectorizer(stop_words="english")
+feature_matrix = tfidf.fit_transform(songs["features"])
+song_similarity = cosine_similarity(feature_matrix)
+
+def recommend_content(song_title, n=3):
+    idx = songs[songs.title == song_title].index[0]
+    scores = list(enumerate(song_similarity[idx]))
+    scores = sorted(scores, key=lambda x: x[1], reverse=True)[1:n+1]
+    return songs.iloc[[i[0] for i in scores]]["title"]
+
+def hybrid_recommend(user_id):
+    result = recommend_cf(user_id)
+    if not result.empty:
+        return result
+    last_song_id = listening[listening.user_id == user_id].song_id.iloc[-1]
+    last_song = songs[songs.song_id == last_song_id].title.values[0]
+    return recommend_content(last_song)
+
+print("\nAvailable Users:", listening.user_id.unique())
+uid = int(input("Enter User ID: "))
+
+print("\nRecommended Bollywood Songs:")
+for song in hybrid_recommend(uid):
+    print(song)
